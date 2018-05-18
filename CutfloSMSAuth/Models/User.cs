@@ -12,14 +12,19 @@ namespace CutfloSMSAuth.Models
 {
     public class User
     {
-        public long UserId { get; set; }
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
-        public string PhoneNumber { get; set; }
-        public string Email { get; set; }
-        public string GenderPref { get; set; }
-        public string LoginSession { get; set; }
-        public string RegistrationSession { get; set; }
+        public long UserId { get; set; } // FOR OUR USE
+        public string CompanyName { get; set; } = "Cutflo"; //REQUIRED
+        public string CompanyMailingUrl { get; set; } = "cutflo.io"; //REQUIRED
+        public string ApiKey { get; set; } // REQUIRED 
+        public string FirstName { get; set; } // OPTIONAL
+        public string LastName { get; set; } // FOR OUR USE
+        public string PhoneNumber { get; set; } // REQUIRED FOR SMS
+        public string Email { get; set; } // REQUIRED FOR EMAIL
+        public string Token { get; set; } // FOR OUR USE
+        public string LoginSession { get; set; } // FOR OUR USE , RETURNED TO YOU FOR LOGIN AUTHENTICATION
+        public string RegistrationSession { get; set; } // FOR OUR USE
+        public bool IsPremium { get; set; } // FOR OUR USE
+        public int SmsSent { get; set; } // FOR OUR USE
 
         public string SendSmsToken()
         {
@@ -39,7 +44,7 @@ namespace CutfloSMSAuth.Models
             var message = MessageResource.Create(
                 toNumber,
                 from: fromNumber,
-                body: string.Format("{0}Your Cutflo authentication token is {1}.", name, token)
+                body: string.Format("{0}Your {1} authentication token is {2}.", name, CompanyName, token)
             );
 
             Console.WriteLine(message.Sid);
@@ -71,9 +76,11 @@ namespace CutfloSMSAuth.Models
             };
             RestRequest request = new RestRequest();
 
-            request.AddParameter("domain", "cutflo.io", ParameterType.UrlSegment);
-            request.Resource = "cutflo.io/messages";
-            request.AddParameter("from", "Cutflo <mailgun@cutflo.io>");
+            string fromFormattedLine = string.Format("{0} <mailgun@{1}>", CompanyName, CompanyMailingUrl);
+
+            request.AddParameter("domain", CompanyMailingUrl, ParameterType.UrlSegment);
+            request.Resource = string.Format("{0}/messages", CompanyMailingUrl);
+            request.AddParameter("from", fromFormattedLine);
 
             // NOTE "Email" parameter is bound to THIS CLASS AND IS A FIELD. SO IT subject (out var of GenerateEmailBody)
             request.AddParameter("to", Email);
@@ -101,12 +108,12 @@ namespace CutfloSMSAuth.Models
             StringBuilder sb = new StringBuilder();
             sb.Append("Hey there!\n\n");
 
-            sb.Append("Thanks for signing up for Cutflo! For your safety & security Cutflo doesn't use passwords. ");
+            sb.Append(string.Format("Thanks for signing up for {0}! For your safety & security {0} doesn't use passwords. ", CompanyName));
             sb.Append("Instead, each time you need to login, an authentication token will be sent to this email. ");
             //sb.Append("If you'd like to use a phone number for this instead, click the link at the bottom of this email.\n\n");
 
             sb.AppendFormat("Here's your sign-up token: {0}", token);
-            subject = "Confirm your Cutflo Account!";
+            subject = string.Format("Confirm your {0} Account!", CompanyName);
             return sb.ToString();
         }
 
@@ -115,10 +122,10 @@ namespace CutfloSMSAuth.Models
             StringBuilder sb = new StringBuilder();
             sb.Append("Hey there!\n\n");
 
-            sb.Append("As always, thanks for using Cutflo!\n\n");
+            sb.Append(string.Format("As always, thanks for using {0}!\n\n", CompanyName));
 
             sb.AppendFormat("Here's your login token: {0}", token);
-            subject = "Login to Cutflo!";
+            subject = string.Format("Login to {0}!", CompanyName);
             return sb.ToString();
         }
     }

@@ -36,8 +36,12 @@ namespace CutfloSMSAuth.Controllers
 
         [Route("api/user/email/register/validate")]
         [HttpPost]
-        public IActionResult ValidateEmail(string email)
+        public IActionResult ValidateEmail(string email, string apiToken)
         {
+            var apiUser = sqlContext.AuthApiUser(apiToken);
+
+            if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
+
             var user = entityContext.Users.FirstOrDefault(u => u.Email == email);
 
             //Temporary User 
@@ -66,8 +70,12 @@ namespace CutfloSMSAuth.Controllers
 
         [Route("api/user/sms/register/validate")]
         [HttpPost]
-        public IActionResult ValidateSms(string phoneNumber, string fName)
+        public IActionResult ValidateSms(string phoneNumber, string fName, string apiToken)
         {
+            var apiUser = sqlContext.AuthApiUser(apiToken);
+
+            if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
+
             var user = entityContext.Users.FirstOrDefault(u => u.PhoneNumber == phoneNumber);
 
             //Temporary User 

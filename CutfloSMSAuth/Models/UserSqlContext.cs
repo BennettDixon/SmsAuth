@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Data.SqlClient;
 using System.Security.Cryptography;
 using System.Collections.Generic;
@@ -7,15 +8,42 @@ using System.Text;
 using System.Threading.Tasks;
 using CutfloSMSAuth;
 using Microsoft.Extensions.DependencyInjection;
+using System.Data.SqlTypes;
 
 namespace CutfloSMSAuth.Models
 {
     public class UserSqlContext
     {
+        public const string UsersTable = "cutfloUsers";
+        public const string RegTable = "cutfloReg";
+        public const string DebugTable = "cutfloDebug";
+        public const string PremiumTable = "smsAuthPremiumUsers";
+        public const string UserInfoTable = "userInfo";
+        public const string ArticlesTable = "cutfloArticles";
+        public const string UserTableName = "smsAuthUsers";
+        public const string SmsRegistrationTable = "smsRegUsers";
+
+        private const string MailingUrlKey = "MAILINGURL";
+        private const string TokenKey = "TOKEN";
+        private const string LoginSessKey = "LOGIN_SESSION";
+        private const string UserIdKey = "USERID";
+        private const string RegSessKey = "REGISTRATIONID";
+        private const string PremiumKey = "IS_PREMIUM";
+        private const string PremiumDateKey = "PREMIUM_END_DATE";
+        private const string AdFreeKey = "AD_FREE";
+        private const string ProfilePhotoKey = "PROFILE_PHOTO";
+        private const string GenderTargetKey = "TARGETGENDER";
+        private const string ApiKey = "APIKEY";
+        private const string SmsCounterKey = "SMSCOUNTER";
+
+
         public string ConnectionString { get; set; }
 
-        public UserSqlContext()
+        private readonly ISqlDebugger Debugger;
+
+        public UserSqlContext(ISqlDebugger _debugger)
         {
+            Debugger = _debugger;
             ConnectionString = ApplicationSettings.GetConnectionString();
         }
 
@@ -24,31 +52,98 @@ namespace CutfloSMSAuth.Models
             return new SqlConnection(ConnectionString);
         }
 
-        // Get User Methods \\
-        public User GetUserByPhone(string _phoneNumber)
+        public bool WriteSqlDebug(string msg)
+        {
+            try
+            {
+                Debugger.ServerWrite(msg);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debugger.ServerWrite(ex.ToString());
+                return false;
+            }
+        }
+
+        /*
+        public bool SetUpgradeStatus(User user, string tableName = PremiumTable, bool wouldUpgrade = true)
         {
             try
             {
                 using (SqlConnection connection = GetConnection())
                 {
                     connection.Open();
+                    int rowsEff = SetUpgradeSubscription(connection, user.UserId, wouldUpgrade, tableName);
+                    if (rowsEff > 0)
+                        return true;
+                    else
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                return false;
+            }
+        }*/
+
+        // Temp Registration DB Methods \\ (replacing entitycontext b/c of scalability 
+        //                                  / tracking who doesn't finish signups)
+
+        // TODO AddUser, RemoveUser, SetUserRegSession, SetUserToken,
+
+        // Get User Methods \\
+        public User GetUserByPhone(string _phoneNumber, string tableName = UserTableName)
+        {
+            if (SqlSecurity.ContainsIllegals(_phoneNumber)) return null;
+
+            try
+            {
+                using (SqlConnection connection = GetConnection())
+                {
+                    connection.Open();
+
+                    string phoneType = string.Empty;
+
+                    if (tableName == UserTableName)
+                    {
+                        phoneType = "PHONE";
+                    }
+                    else if (tableName == RegTable)
+                    {
+                        phoneType = "PHONENUMBER";
+                    }
 
                     StringBuilder sb = new StringBuilder();
-                    sb.AppendFormat("SELECT * FROM cutfloUsers WHERE PHONE = '{0}';", _phoneNumber);
-                    String sql = sb.ToString();
+                    sb.AppendFormat("SELECT * FROM {0} WHERE {1} = '{2}';", tableName, phoneType, _phoneNumber);
+                    string sql = sb.ToString();
 
                     using (SqlCommand command = new SqlCommand(sql, connection))
+                    using (SqlDataReader reader = command.ExecuteReader())
                     {
-                        using (SqlDataReader reader = command.ExecuteReader())
-                        {
-                            var returnUser = GetUserFromReader(reader);
+                        User returnUser = null;
 
-                            if (returnUser.FirstName != null && returnUser.PhoneNumber != null)
-                            {
-                                return returnUser;
-                            }
-                            else return null;
+                        // Normal Users Table
+                        if (tableName == UsersTable)
+                        {
+                            returnUser = GetUserFromReader(reader);
                         }
+                        // Registration Table
+                        else if (tableName == RegTable)
+                        {
+                            returnUser = GetTempUserFromReader(reader);
+                        }
+
+                        if (returnUser == null)
+                        {
+                            return null;
+                        }
+                        if (returnUser.FirstName != null && returnUser.PhoneNumber != null)
+                        {
+                            return returnUser;
+                        }
+                        return null;
                     }
                 }
             }
@@ -59,8 +154,13 @@ namespace CutfloSMSAuth.Models
             }
         }
 
-        public User GetUserByEmail(string _email)
+        public User GetUserByEmail(string _email, string tableName = UserTableName)
         {
+            if (SqlSecurity.ContainsIllegals(_email))
+            {
+                return null;
+            }
+
             try
             {
                 using (SqlConnection connection = GetConnection())
@@ -68,28 +168,88 @@ namespace CutfloSMSAuth.Models
                     connection.Open();
 
                     StringBuilder sb = new StringBuilder();
-                    sb.AppendFormat("SELECT * FROM cutfloUsers WHERE EMAIL = '{0}';", _email);
-                    String sql = sb.ToString();
+                    sb.AppendFormat("SELECT * FROM {0} WHERE EMAIL = '{1}';", tableName, _email);
+                    string sql = sb.ToString();
 
                     using (SqlCommand command = new SqlCommand(sql, connection))
+                    using (SqlDataReader reader = command.ExecuteReader())
                     {
-                        using (SqlDataReader reader = command.ExecuteReader())
-                        {
-                            var returnUser = GetUserFromReader(reader);
+                        User returnUser = null;
 
-                            if (returnUser.FirstName != null && returnUser.Email != null)
-                            {
-                                return returnUser;
-                            }
-                            else return null;
+                        if (tableName == UsersTable)
+                        {
+                            returnUser = GetUserFromReader(reader);
                         }
+                        else if (tableName == RegTable)
+                        {
+                            returnUser = GetTempUserFromReader(reader);
+                        }
+
+                        return returnUser;
                     }
+
                 }
             }
             catch (SqlException e)
             {
-                Console.WriteLine(e);
+                SqlDebugger.Instance.ServerWrite(e.Message);
                 return null;
+            }
+        }
+
+        /*
+        public User GetUserFromSession(string session, string tableName = UsersTable)
+        {
+            if (SqlSecurity.ContainsIllegals(session)) return null;
+
+            using (SqlConnection connection = GetConnection())
+            {
+                connection.Open();
+                string sessionKey = string.Empty;
+
+                if (tableName == UsersTable)
+                {
+                    sessionKey = LoginSessKey;
+                }
+                else if (tableName == RegTable)
+                {
+                    sessionKey = RegSessKey;
+                }
+
+                string sql = string.Format("SELECT * FROM {0} WHERE {1} = '{2}'", tableName, sessionKey, session);
+                using (SqlCommand command = new SqlCommand(sql, connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    User user = null;
+
+                    if (tableName == UsersTable)
+                    {
+                        user = GetUserFromReader(reader);
+                    }
+                    else if (tableName == RegTable)
+                    {
+                        user = GetTempUserFromReader(reader);
+                    }
+                    return user;
+                }
+            }
+        }*/
+
+        public User GetTempUserFromToken(string token, string tableName = SmsRegistrationTable)
+        {
+            if (SqlSecurity.ContainsIllegals(token)) return null;
+
+            using (SqlConnection connection = GetConnection())
+            {
+                connection.Open();
+                string sql = string.Format("SELECT * FROM {0} WHERE {1} = '{2}'", tableName, TokenKey, token);
+                using (SqlCommand command = new SqlCommand(sql, connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    User user = null;
+                    user = GetTempUserFromReader(reader);
+                    return user;
+                }
             }
         }
 
@@ -104,38 +264,254 @@ namespace CutfloSMSAuth.Models
                     LastName = reader.IsDBNull(2) ? null : reader.GetString(2),
                     Email = reader.IsDBNull(3) ? null : reader.GetString(3),
                     PhoneNumber = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    GenderPref = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    LoginSession = reader.IsDBNull(6) ? null : reader.GetString(6)
+                    LoginSession = reader.IsDBNull(5) ? null : reader.GetString(6),
                 };
                 return user;
             }
             return null;
         }
 
+        private User GetTempUserFromReader(SqlDataReader reader)
+        {
+            if (reader.Read())
+            {
+                var user = new User
+                {
+                    UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
+                    RegistrationSession = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    Token = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    PhoneNumber = reader.IsDBNull(4) ? null : reader.GetString(4)
+                };
+                return user;
+            }
+
+            return null;
+        }
+
+        private int GetUserId(SqlConnection connection, string session, string tableName = UserTableName)
+        {
+            if (SqlSecurity.ContainsIllegals(session)) return -1;
+
+            string sql = string.Format("SELECT USERID FROM {0} WHERE {1} = '{2}'", tableName, ApiKey, session);
+            using (SqlCommand checkExists = new SqlCommand(sql, connection))
+            {
+                int? userId = (int)checkExists.ExecuteScalar();
+                if (userId == null)
+                {
+                    return -1;
+                }
+                return (int)userId;
+            }
+        }
+
         // Login Methods \\
-        public string SetLoginSessionId(User user, out int rowsEff)
+        /*public async Task<User> GetAdditionalUserInfo(User user, string tableName = UserInfoTable)
+        {
+            try
+            {
+                string sql = string.Format("SELECT * FROM {0} WHERE {1} = '{2}'", tableName, UserIdKey, user.UserId);
+                using (SqlConnection connection = GetConnection())
+                {
+                    await connection.OpenAsync();
+                    using (SqlCommand cmd = new SqlCommand(sql, connection))
+                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (reader.Read())
+                        {
+                            var _profilePhotoPath = reader.IsDBNull(1) ? null : reader.GetString(1);
+                            reader.Close();
+                            user.ProfilePhotoPath = _profilePhotoPath;
+                        }
+                        return user;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                SqlDebugger.Instance.SetDebugContext(user.UserId);
+                SqlDebugger.Instance.ServerWrite("Ex Caught:" + ex.Message);
+                return user;
+            }
+        }*/
+
+        public async Task<bool> UptickUserSmsCount(User user, string tableName = UserTableName)
+        {
+            try
+            {
+                string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = '{4}';", tableName, SmsCounterKey, user.SmsSent + 1, ApiKey, user.ApiKey);
+                using (SqlConnection connection = GetConnection())
+                {
+                    await connection.OpenAsync();
+                    using (SqlCommand cmd = new SqlCommand(sql, connection))
+                    {
+                        int resp = await cmd.ExecuteNonQueryAsync();
+                        if (resp > 0)
+                        {
+                            return true;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                    
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+        }
+
+        /*
+        public User CheckPremium(User user, string tableName = PremiumTable)
+        {
+            try
+            {
+                string sql = string.Format("SELECT * FROM {0} WHERE {1} = '{2}'", tableName, UserIdKey, user.UserId);
+                using (SqlConnection connection = GetConnection())
+                {
+                    connection.Open();
+                    using (SqlCommand cmd = new SqlCommand(sql, connection))
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            int _IsPremium = reader.IsDBNull(1) ? 0 : reader.GetInt32(2);
+                            SqlDateTime _expiryDate = reader.IsDBNull(3) ? SqlDateTime.MinValue : reader.GetSqlDateTime(3);
+                            if (_IsPremium == 0) user.IsPremium = false;
+                            else if (_IsPremium == 1) user.IsPremium = true;
+                            reader.Close();
+
+                            int _expiryComparison = _expiryDate.CompareTo(DateTime.UtcNow);
+                            // If expiry date is exactly now, or later it will return 0 or 1
+                            if (_IsPremium == 1 && _expiryComparison <= 0)
+                            {
+                                SetUpgradeSubscription(connection, user.UserId, false, tableName);
+                                user.IsPremium = false;
+                            }
+                        }
+                        return user;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                SqlDebugger.Instance.ServerWrite("Ex Caught:" + ex.Message);
+                return user;
+            }
+        }
+        */
+
+            /*
+        private int SetUpgradeSubscription(SqlConnection connection, long UserId, bool isUpgrade, string tableName = PremiumTable)
+        {
+            try
+            {
+                string sqlInsert = string.Format("INSERT INTO {0} ({1}) VALUES({2})", tableName, UserIdKey, UserId);
+                using (SqlCommand cmd = new SqlCommand(sqlInsert, connection))
+                {
+                    int rowsEff = cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Already In Premium Table");
+            }
+
+            int? _boolToInt = null;
+            if (isUpgrade == true)
+                _boolToInt = 1;
+            else if (isUpgrade == false)
+                _boolToInt = 0;
+
+            DateTime oneMonthFromNow = DateTime.UtcNow.AddMonths(1);
+
+            string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = '{4}'", tableName, PremiumKey, _boolToInt, UserIdKey, UserId);
+            string sqlCmd2 = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = '{4}'", tableName, PremiumDateKey, oneMonthFromNow, UserIdKey, UserId);
+            using (SqlCommand cmd = new SqlCommand(sql, connection))
+            using (SqlCommand cmd2 = new SqlCommand(sqlCmd2, connection))
+            {
+                int rowsEff = cmd.ExecuteNonQuery();
+                if (isUpgrade == false)
+                {
+                    return rowsEff;
+                }
+                rowsEff += cmd2.ExecuteNonQuery();
+                return rowsEff;
+            }
+        }
+        */
+
+        public string SetLoginSessionId(User user, out int rowsEff, string tableName = UserTableName)
         {
             if (user == null)
             {
                 rowsEff = 0;
                 return "ERROR: User is null.";
             }
+
+            if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
+            {
+                rowsEff = 0;
+                return null;
+            }
+
             using (SqlConnection connection = GetConnection())
             {
                 connection.Open();
                 // Set user's session column to string sessionId and return so we can return Json
                 var _sessionId = KeyGeneration.GenerateSession();
                 user.LoginSession = _sessionId;
-                SqlCommand insertSession = new SqlCommand(string.Format("UPDATE cutfloUsers SET LOGIN_SESSION = '{0}' WHERE USERID = {1}", _sessionId, user.UserId), connection);
+                string sql = string.Format("UPDATE {0} SET LOGIN_SESSION = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
+                using (SqlCommand insertSession = new SqlCommand(sql, connection))
+                {
+                    rowsEff = insertSession.ExecuteNonQuery();
+                    return _sessionId;
+                }
+            }
+        }
 
-                rowsEff = insertSession.ExecuteNonQuery();
-                return _sessionId;
+        public string SetRegistrationSession(User user, string tableName = SmsRegistrationTable)
+        {
+            if (user == null)
+            {
+                return "ERROR: User is null.";
+            }
+            if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
+            {
+                return "ERROR: contains illegals.";
+            }
+
+            using (SqlConnection connection = GetConnection())
+            {
+                connection.Open();
+                // Set user's session column to string sessionId and return so we can return Json
+                var _sessionId = KeyGeneration.GenerateSession();
+                user.RegistrationSession = _sessionId;
+                string sql = string.Format("UPDATE {0} SET REGISTRATIONID = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
+                using (SqlCommand insertSession = new SqlCommand(sql, connection))
+                {
+                    insertSession.ExecuteNonQuery();
+                    return _sessionId;
+                }
             }
         }
 
         // Registration Methods \\
         public bool CreateUser(string fName, string lName, string email, string phone, string genderPref)
         {
+            string[] sqlStrs = { fName, lName, email, phone, genderPref };
+            if (SqlSecurity.BatchContainsIllegals(sqlStrs))
+            {
+                return false;
+            }
+
+            // Trim strings to make sure no leading whitespace
+            //FileSystemParsers.RemoveSpacesFromBatch(sqlStrs);
+
             try
             {
                 using (SqlConnection connection = GetConnection())
@@ -144,18 +520,19 @@ namespace CutfloSMSAuth.Models
 
                     StringBuilder sb = new StringBuilder();
                     sb.Append("INSERT INTO cutfloUsers (FNAME, LNAME, EMAIL, PHONE, GENDER_PREF)");
-                    sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", fName, lName, email, phone, genderPref);
-                    String sql = sb.ToString();
+                    sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}', '{4}');", fName, lName, email, phone, genderPref);
+                    string sql = sb.ToString();
 
-                    SqlCommand createUser = new SqlCommand(sql, connection);
-
-                    int rowsEff = createUser.ExecuteNonQuery();
-
-                    if (rowsEff > 0)
+                    using (SqlCommand createUser = new SqlCommand(sql, connection))
                     {
-                        return true;
+                        int rowsEff = createUser.ExecuteNonQuery();
+
+                        if (rowsEff > 0)
+                        {
+                            return true;
+                        }
+                        return false;
                     }
-                    return false;
                 }
             }
             catch (SqlException ex)
@@ -165,119 +542,107 @@ namespace CutfloSMSAuth.Models
             }
         }
 
-        // Cut Methods \\
-        public List<Cut> GetCutsBySession(string session)
+        // cutfloReg DB
+        public bool CreateTempUser(User user)
         {
-            List<Cut> returnCuts = new List<Cut>();
-            List<int> cutIds = new List<int>();
+            string[] sqlStrs = { user.PhoneNumber, user.Email, user.Token };
+            if (SqlSecurity.BatchContainsIllegals(sqlStrs))
+            {
+                return false;
+            }
 
             try
             {
                 using (SqlConnection connection = GetConnection())
                 {
-                    string sql;
-
                     connection.Open();
 
-                    int curCuts = GetCurrentNumCuts(connection, session);
+                    StringBuilder sb = new StringBuilder();
+                    sb.Append("INSERT INTO cutfloReg (REGISTRATIONID, TOKEN, EMAIL, PHONENUMBER)");
+                    sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}');", user.RegistrationSession, user.Token, user.Email, user.PhoneNumber);
+                    string sql = sb.ToString();
 
-                    //Grab each cut ID for the user based on their login session so we can lookup in cutsTable
-                    for (int i = 0; i < curCuts; i++)
+                    using (SqlCommand createUser = new SqlCommand(sql, connection))
                     {
-                        var cutColumn = string.Format("CUT_{0}", i);
-                        sql = string.Format("SELECT {0} FROM cutfloUsers WHERE LOGIN_SESSION = '{1}'", cutColumn, session);
+                        int rowsEff = createUser.ExecuteNonQuery();
 
-                        SqlCommand getCutTableId = new SqlCommand(sql, connection);
-                        int cutId = (int)getCutTableId.ExecuteScalar();
-                        cutIds.Add(cutId);
-                    }
-
-
-                    //Grab each cut out of the cutTable by cutID
-                    foreach (int cutId in cutIds)
-                    {
-                        sql = string.Format("SELECT * FROM cutfloCuts WHERE CUT_ID = '{0}'", cutId);
-
-                        SqlCommand getCut = new SqlCommand(sql, connection);
-
-                        using (SqlDataReader reader = getCut.ExecuteReader())
+                        if (rowsEff > 0)
                         {
-                            Cut cut = GetCut(reader);
-                            returnCuts.Add(cut);
+                            return true;
                         }
+                        return false;
                     }
-                    return returnCuts;
                 }
             }
             catch (SqlException ex)
             {
                 Console.WriteLine(ex);
-                return null;
+                return false;
             }
         }
 
-        private int GetCurrentNumCuts(SqlConnection connection, string session)
+        public bool DeleteTempUser(User user, string tableName = UserTableName)
         {
             try
             {
-                int curCuts = -1;
+                using (SqlConnection connection = GetConnection())
+                {
+                    connection.Open();
 
-                string sql = string.Format("SELECT CUR_CUTS FROM cutfloUsers WHERE LOGIN_SESSION = '{0}'", session);
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendFormat("DELETE FROM {0}", tableName);
+                    sb.AppendFormat(" WHERE USERID = '{0}'", user.UserId);
+                    string sql = sb.ToString();
 
-                SqlCommand getCurCuts = new SqlCommand(sql, connection);
+                    using (SqlCommand deleteUser = new SqlCommand(sql, connection))
+                    {
 
-                curCuts = (int) getCurCuts.ExecuteScalar();
+                        int rowsEff = deleteUser.ExecuteNonQuery();
 
-                return curCuts;
+                        if (rowsEff > 0)
+                        {
+                            return true;
+                        }
+                        return false;
+                    }
+                }
             }
             catch (SqlException ex)
             {
-                Console.WriteLine(ex);
-                return -1;
+                SqlDebugger.Instance.ServerWrite(ex.Message);
+                return false;
             }
         }
 
-        private int GetAllowedCuts(SqlConnection connection, string session)
+        public async Task<User> AuthApiUser(string apiToken, string tableName = UserTableName)
         {
             try
             {
-                int maxCuts = -1;
-
-                string sql = string.Format("SELECT MAX_CUTS FROM cutfloUsers WHERE LOGIN_SESSION = '{0}'", session);
-
-                SqlCommand getCutTableId = new SqlCommand(sql, connection);
-
-                using (SqlDataReader reader = getCutTableId.ExecuteReader())
+                using (SqlConnection connection = GetConnection())
                 {
-                    maxCuts = reader.GetInt32(0);
-                }
+                    await connection.OpenAsync();
 
-                return maxCuts;
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendFormat("SELECT * FROM {0} WHERE {1} = '{2}';", tableName, ApiKey, apiToken);
+                    string sql = sb.ToString();
+
+                    using (SqlCommand command = new SqlCommand(sql, connection))
+                    using (SqlDataReader reader = command.ExecuteReader())
+                    {
+                        var apiUser = GetUserFromReader(reader);
+                        return apiUser;
+                    }
+                }
             }
-            catch (SqlException ex)
+            catch (Exception)
             {
-                Console.WriteLine(ex);
-                return -1;
+
+                throw;
             }
         }
 
-        //Grab Cut Data from cutTable when given reader executing SELECT * FROM cutfloCuts WHERE CUT_ID command
-        private Cut GetCut(SqlDataReader reader)
-        {
-            if (reader.Read())
-            {
-                DateTime cutDate = reader.IsDBNull(1) ? DateTime.Now : reader.GetDateTime(1);
-                string cutSpin = reader.IsDBNull(2) ? null : reader.GetString(2);
-                string cutName = reader.IsDBNull(3) ? null : reader.GetString(3);
 
-                if (cutSpin == null)
-                {
-                    return null;
-                }
-                Cut cut = new Cut { CutDate = cutDate, CutSpin = cutSpin, CutName = cutName };
-                return cut;
-            }
-            return null;
-        }
     }
 }
+
+       
