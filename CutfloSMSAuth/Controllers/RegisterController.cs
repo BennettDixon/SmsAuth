@@ -1,11 +1,14 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CutfloSMSAuth.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
-using CutfloSMSAuth.Models;
-using RestSharp;
+using Microsoft.Extensions.Options;
+using CutfloSMSAuth.Constants;
+using System.Net.Http;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
@@ -13,178 +16,204 @@ namespace CutfloSMSAuth.Controllers
 {
     public class RegisterController : Controller
     {
-        private readonly UserContext entityContext;
+        private readonly string PhoneKey = HttpContextKeys.Phone;
+        private readonly string EmailKey = HttpContextKeys.Email;
+        private readonly string TokenKey = HttpContextKeys.Token;
+        private string CurrentKey { get; set; }
+
         private readonly UserSqlContext sqlContext;
+        //private readonly UserContext entityContext;
 
-        public RegisterController(UserContext _entityContext, UserSqlContext _sqlContext)
+
+        public RegisterController(UserSqlContext _sqlContext)
         {
-            entityContext = _entityContext;
             sqlContext = _sqlContext;
+        }
 
-            //Populate entity database with initial user.
-            if (entityContext.Users.Count() == 0)
+        // Registration Methods \\
+
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT : User.ApiKey, User.CompanyName, User.CompanyMailingUrl, User.Email OR User.PhoneNumber
+        // OPTIONAL : User.FirstName
+        [Route("api/registration/login/validate")]
+        [HttpPost]
+        public async Task<IActionResult> ValidatePhone([FromBody] User post)
+        {
+            var apiUser = await sqlContext.AuthApiUser(post.ApiKey);
+
+            if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
+
+            string email = post.Email;
+            string phoneNumber = post.PhoneNumber;
+            User sqlUser = null;
+            var jsonFalse = Json(new { success = false });
+
+            if ((phoneNumber == null && email == null))
             {
-                var user = new User()
+                return jsonFalse;
+            }
+
+            if (phoneNumber != null)
+            {
+                sqlUser = sqlContext.GetUserByPhone(phoneNumber);
+            }
+            if (email != null && phoneNumber == null)
+            {
+                sqlUser = sqlContext.GetUserByEmail(email);
+            }
+            if (sqlUser == null)
+            {
+                return jsonFalse;
+            }
+            /////////\\\\\\\\\\
+            // SEND THE TOKEN \\\
+            //\\\\\\\\\//////////\\
+            // Send via phone
+            if (phoneNumber != null)
+            {
+                string _token = sqlUser.SendSmsToken();
+                HttpContext.Session.SetString(PhoneKey, phoneNumber);
+                HttpContext.Session.SetString(TokenKey, _token);
+                await UptickApiUserSmsCount(apiUser);
+                return Json(GenericJsonSuccess.True);
+            }
+            // Send via email if no phone
+            else if (phoneNumber == null && email != null)
+            {
+                bool isRegistration = false;
+                string _token = sqlUser.SendEmailToken(isRegistration);
+                HttpContext.Session.SetString(EmailKey, email);
+                HttpContext.Session.SetString(TokenKey, _token);
+                await UptickApiUserSmsCount(apiUser);
+                return Json(GenericJsonSuccess.True);
+            }
+
+            return Json(GenericJsonSuccess.False);
+        }
+
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT : User.ApiKey, User.Token
+        [Route("api/registration/login/auth/")]
+        [HttpPost]
+        public async Task<IActionResult> Auth([FromBody] User post)
+        {
+            string token = post.Token;
+            User user = GetSqlUser();
+
+            if (user != null && token == HttpContext.Session.GetString(TokenKey))
+            {
+                HttpContext.Session.Remove(TokenKey);
+                HttpContext.Session.Remove(PhoneKey);
+                string _sessionId = await sqlContext.SetLoginSessionId(user);
+                //var _userWithPremiumInfo = sqlContext.CheckPremium(user);
+                //var returnUser = await sqlContext.GetAdditionalUserInfo(_userWithPremiumInfo);
+                return Json(user);
+            }
+            return Json(null);
+        }
+
+        private User GetSqlUser()
+        {
+            if (HttpContext.Session.Keys.Contains(PhoneKey))
+            {
+                var phone = HttpContext.Session.GetString(PhoneKey);
+                var user = sqlContext.GetUserByPhone(phone);
+                CurrentKey = PhoneKey;
+                return user;
+            }
+            else if (HttpContext.Session.Keys.Contains(EmailKey))
+            {
+                var email = HttpContext.Session.GetString(EmailKey);
+                var user = sqlContext.GetUserByEmail(email);
+                CurrentKey = EmailKey;
+                return user;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT :  User.ApiKey, User.Email OR User.PhoneNumber, User.CompanyName, User.CompanyMailingUrl  
+        // NOTE YOU SHOULD CHECK TO SEE IF THE USER EXISTS IN YOUR DATABASE BEFORE SENDING THE POST REQUEST
+        [Route("api/registration/register/validate")]
+        [HttpPost]
+        public async Task<IActionResult> ValidateSms([FromBody] User post)
+        {
+            User user = null;
+            string email = post.Email;
+            string phoneNumber = post.PhoneNumber;
+            bool isEmail = false;
+
+            if (phoneNumber == null && email == null)
+            {
+                return Json(ErrorMessages.ContactMethodError());
+            }
+
+            if (phoneNumber == null && email != null) isEmail = true;
+
+            /////////\\\\\\\\\\
+            // SEND THE TOKEN \\\
+            //\\\\\\\\\//////////\\
+
+            if (user == null)
+            {
+                if (isEmail)
                 {
-                    FirstName = ApplicationSettings.DefaultName,
-                    PhoneNumber = ApplicationSettings.DefaultNumber
-                };
-                entityContext.Users.Add(user);
-                entityContext.SaveChanges();
-            }
-        }
-
-        [Route("api/user/email/register/validate")]
-        [HttpPost]
-        public IActionResult ValidateEmail(string email, string apiToken)
-        {
-            var apiUser = sqlContext.AuthApiUser(apiToken);
-
-            if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
-
-            var user = entityContext.Users.FirstOrDefault(u => u.Email == email);
-
-            //Temporary User 
-            if (user == null)
-            {
-                user = new User() { Email = email };
+                    user = new User { Email = email, FirstName = null };
+                }
+                else
+                {
+                    user = new User() { PhoneNumber = phoneNumber, FirstName = null };
+                }
             }
 
-            //If there is someone to send a token to, send a token
-            if (user != null)
-            {
-                bool isRegistration = true;
-
-                string _token = user.SendEmailToken(isRegistration);
-
-                HttpContext.Session.SetString("Email", user.Email);
-                HttpContext.Session.SetString("Token", _token);
-                entityContext.Users.Add(user);
-                entityContext.SaveChanges();
-                return Json(new { success = true });
-            }
-
-            return Json(new { success = false });
-
-        }
-
-        [Route("api/user/sms/register/validate")]
-        [HttpPost]
-        public IActionResult ValidateSms(string phoneNumber, string fName, string apiToken)
-        {
-            var apiUser = sqlContext.AuthApiUser(apiToken);
-
-            if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
-
-            var user = entityContext.Users.FirstOrDefault(u => u.PhoneNumber == phoneNumber);
-
-            //Temporary User 
-            if (user == null)
-            {
-                user = new User() { PhoneNumber = phoneNumber, FirstName = fName };
-            }
-
-            //If there is someone to send a token to, send a token
-            if (user != null)
+            // Send via phone
+            if (phoneNumber != null)
             {
                 string _token = user.SendSmsToken();
-                HttpContext.Session.SetString("PhoneNumber", user.PhoneNumber);
-                HttpContext.Session.SetString("Token", _token);
-                entityContext.Users.Add(user);
-                entityContext.SaveChanges();
-                return Json(new { success = true });
+                user.Token = _token;
+            }
+            // Send via email if there is no phone
+            else if (email != null && phoneNumber == null)
+            {
+                bool isRegistration = true;
+                string _token = user.SendEmailToken(isRegistration);
+                user.Token = _token;
             }
 
-            return Json(new { success = false });
+            var respBool = await sqlContext.CreateTempUser(user);
+
+            if (respBool == false)
+            {
+                SqlDebugger.Instance.ServerWrite("Failed To Create temp user");
+            }
+
+            return Json(GenericJsonSuccess.True);
 
         }
 
-        [Route("api/user/email/register/auth/")]
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT : User.Token
+        [Route("api/registration/register/auth/")]
         [HttpPost]
-        public IActionResult AuthEmail(string token)
+        public async Task<IActionResult> RegAuth([FromBody] User post)
         {
-            var jsonFalse = Json(new { success = false });
+            string token = post.Token;
+            User user = sqlContext.GetTempUserFromToken(token);
 
-            //If there is no session data, AKA a Token, return false
-            if (!HttpContext.Session.Keys.Any())
+            if (user != null && token == user.Token)
             {
-                return jsonFalse;
+                await sqlContext.SetRegistrationSession(user);
+                sqlContext.DeleteTempUser(user);
+                return Json(user.RegistrationSession);
             }
 
-            string email = HttpContext.Session.GetString("Email");
-
-            var user = entityContext.Users.FirstOrDefault(u => u.Email == email);
-
-            if (user != null && token == HttpContext.Session.GetString("Token"))
-            {
-                HttpContext.Session.Remove("Token");
-                HttpContext.Session.Remove("Email");
-                user.RegistrationSession = entityContext.SetRegisterSessionId(ref user);
-                entityContext.Users.Update(user);
-                entityContext.SaveChanges();
-
-                return Json(new { success = true, RegistrationId = user.RegistrationSession });
-            }
-
-            return jsonFalse;
+            return Json(user.RegistrationSession);
         }
 
-        [Route("api/user/sms/register/auth/")]
-        [HttpPost]
-        public IActionResult AuthSms(string token)
+        private async Task<bool> UptickApiUserSmsCount(User apiUser)
         {
-            var jsonFalse = Json(new { success = false });
-
-            //If there is no session data, AKA a Token, return false
-            if (!HttpContext.Session.Keys.Any())
-            {
-                return jsonFalse;
-            }
-
-            string number = HttpContext.Session.GetString("PhoneNumber");
-
-            var user = entityContext.Users.FirstOrDefault(u => u.PhoneNumber == number);
-
-            if (user != null && token == HttpContext.Session.GetString("Token"))
-            {
-                HttpContext.Session.Remove("Token");
-                HttpContext.Session.Remove("PhoneNumber");
-                user.RegistrationSession = entityContext.SetRegisterSessionId(ref user);
-                entityContext.Users.Update(user);
-                entityContext.SaveChanges();
-
-                return Json(new { success = true, RegistrationId = user.RegistrationSession });
-            }
-
-            return jsonFalse;
-        }
-
-        [Route("api/user/sms/register/create")]
-        [HttpPost]
-        public IActionResult Create(string registrationId, string fName, string lName, string email, string phone, string genderPref)
-        {
-            var user = entityContext.Users.FirstOrDefault(u => u.RegistrationSession == registrationId);
-
-            if (user == null)
-            {
-                return Json(new { Success = false });
-            }
-
-            //Internal class of UserSqlContext
-            bool userCreated = sqlContext.CreateUser(fName, lName, email, phone, genderPref);
-
-            if (userCreated)
-            {
-                user = sqlContext.GetUserByPhone(phone);
-                var loginSession = sqlContext.SetLoginSessionId(user, out int rowsEff);
-
-                if (rowsEff < 1) return Json(new { Error = "USER CREATED. LOGIN FAILED." });
-
-                return Json(new { Success = true, LoginSession = loginSession });
-            }
-            return Json(new { Success = false });
-
+            bool upticked = await sqlContext.UptickUserSmsCount(apiUser);
+            if (upticked == false) SqlDebugger.Instance.ServerWrite("Failed to log sms uptick, userid: " + apiUser.UserId);
+            return upticked;
         }
     }
-
 }

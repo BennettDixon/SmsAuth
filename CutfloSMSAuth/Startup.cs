@@ -27,9 +27,11 @@ namespace CutfloSMSAuth
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            SqlDebugger debugger = SqlDebugger.Instance;
+
             //Add Database Connections
             services.AddDbContext<UserContext>(opt => opt.UseInMemoryDatabase("Users"));
-            services.Add(new ServiceDescriptor(typeof(UserSqlContext), new UserSqlContext()));
+            services.Add(new ServiceDescriptor(typeof(UserSqlContext), new UserSqlContext(debugger)));
 
             //Establish API Routes
             services.AddRouting();

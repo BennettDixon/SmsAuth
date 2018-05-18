@@ -32,8 +32,9 @@ namespace CutfloSMSAuth.Controllers
 
         // Registration Methods \\
 
-        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT : User.ApiKey, User.CompanyName, User.CompanyMailingUrl, User.Email OR User.PhoneNumber
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT : User.ApiKey, User.Email OR User.PhoneNumber
         // OPTIONAL : User.FirstName
+        // NOTE VALIDATE USER EXISTS IN DATABASE BY THEIR CONTACT METHOD BEFORE USING THIS ENDPOINT
         [Route("api/user/login/validate")]
         [HttpPost]
         public async Task<IActionResult> ValidatePhone([FromBody] User post)
@@ -44,7 +45,7 @@ namespace CutfloSMSAuth.Controllers
 
             string email = post.Email;
             string phoneNumber = post.PhoneNumber;
-            User sqlUser = null;
+            User userObject = null;
             var jsonFalse = Json(new { success = false });
 
             if ((phoneNumber == null && email == null))
@@ -52,25 +53,17 @@ namespace CutfloSMSAuth.Controllers
                 return jsonFalse;
             }
 
-            if (phoneNumber != null)
-            {
-                sqlUser = sqlContext.GetUserByPhone(phoneNumber);
-            }
-            if (email != null && phoneNumber == null)
-            {
-                sqlUser = sqlContext.GetUserByEmail(email);
-            }
-            if (sqlUser == null)
-            {
-                return jsonFalse;
-            }
+            userObject.CompanyName = apiUser.CompanyName;
+            userObject.CompanyMailingUrl = apiUser.CompanyMailingUrl;
+            
             /////////\\\\\\\\\\
             // SEND THE TOKEN \\\
             //\\\\\\\\\//////////\\
             // Send via phone
             if (phoneNumber != null)
             {
-                string _token = sqlUser.SendSmsToken();
+                userObject.PhoneNumber = phoneNumber;
+                string _token = userObject.SendSmsToken();
                 HttpContext.Session.SetString(PhoneKey, phoneNumber);
                 HttpContext.Session.SetString(TokenKey, _token);
                 await UptickApiUserSmsCount(apiUser);
@@ -80,7 +73,8 @@ namespace CutfloSMSAuth.Controllers
             else if (phoneNumber == null && email != null)
             {
                 bool isRegistration = false;
-                string _token = sqlUser.SendEmailToken(isRegistration);
+                userObject.Email = email;
+                string _token = userObject.SendEmailToken(isRegistration);
                 HttpContext.Session.SetString(EmailKey, email);
                 HttpContext.Session.SetString(TokenKey, _token);
                 await UptickApiUserSmsCount(apiUser);
@@ -100,44 +94,21 @@ namespace CutfloSMSAuth.Controllers
             if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
 
             string token = post.Token;
-            User user = GetSqlUser();
 
-            if (user != null && token == HttpContext.Session.GetString(TokenKey))
+            if (token == HttpContext.Session.GetString(TokenKey))
             {
                 HttpContext.Session.Remove(TokenKey);
                 HttpContext.Session.Remove(PhoneKey);
-                string _sessionId = sqlContext.SetLoginSessionId(user, out int rowsEff);
+                string _sessionId = KeyGeneration.GenerateSession();
                 //var _userWithPremiumInfo = sqlContext.CheckPremium(user);
                 //var returnUser = await sqlContext.GetAdditionalUserInfo(_userWithPremiumInfo);
-                return Json(user);
+                return Json(new SessionResponse(_sessionId));
             }
             return Json(null);
         }
 
-        private User GetSqlUser()
-        {
-            if (HttpContext.Session.Keys.Contains(PhoneKey))
-            {
-                var phone = HttpContext.Session.GetString(PhoneKey);
-                var user = sqlContext.GetUserByPhone(phone);
-                CurrentKey = PhoneKey;
-                return user;
-            }
-            else if (HttpContext.Session.Keys.Contains(EmailKey))
-            {
-                var email = HttpContext.Session.GetString(EmailKey);
-                var user = sqlContext.GetUserByEmail(email);
-                CurrentKey = EmailKey;
-                return user;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT :  User.ApiKey, User.Email OR User.PhoneNumber, User.CompanyName, User.CompanyMailingUrl  
-        // NOTE YOU SHOULD CHECK TO SEE IF THE USER EXISTS IN YOUR DATABASE BEFORE SENDING THE POST REQUEST
+        // REQUIRED ATTRIBUTES FOR THIS POST OBJECT :  User.ApiKey, User.Email OR User.PhoneNumber
+        // NOTE YOU SHOULD CHECK TO SEE IF THE USER EXISTS IN YOUR DATABASE BY THEIR CONTACT METHOD BEFORE USING THIS ENDPOINT
         [Route("api/user/register/validate")]
         [HttpPost]
         public async Task<IActionResult> ValidateSms([FromBody] User post)
@@ -145,7 +116,7 @@ namespace CutfloSMSAuth.Controllers
             var apiUser = await sqlContext.AuthApiUser(post.ApiKey);
 
             if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
-
+            SqlDebugger.Instance.ServerWrite("APIUSER authenticated");
             User user = null;
             string email = post.Email;
             string phoneNumber = post.PhoneNumber;
@@ -166,12 +137,18 @@ namespace CutfloSMSAuth.Controllers
             {
                 if (isEmail)
                 {
-                    user = new User { Email = email, FirstName = null };
+                    user = new User
+                    {
+                        Email = email,
+                        FirstName = null
+                    };
                 }
                 else
                 {
                     user = new User() { PhoneNumber = phoneNumber, FirstName = null };
                 }
+                user.CompanyMailingUrl = apiUser.CompanyMailingUrl;
+                user.CompanyName = apiUser.CompanyName;
             }
 
             // Send via phone
@@ -190,7 +167,7 @@ namespace CutfloSMSAuth.Controllers
                 await UptickApiUserSmsCount(apiUser);
             }
 
-            var respBool = sqlContext.CreateTempUser(user);
+            var respBool = await sqlContext.CreateTempUser(user);
 
             if (respBool == false)
             {
@@ -216,12 +193,12 @@ namespace CutfloSMSAuth.Controllers
 
             if (user != null && token == user.Token)
             {
-                sqlContext.SetRegistrationSession(user);
+                await sqlContext.SetRegistrationSession(user);
                 sqlContext.DeleteTempUser(user);
                 return Json(user.RegistrationSession);
             }
 
-            return Json(user.RegistrationSession);
+            return Json(new SessionResponse(user.RegistrationSession));
         }
 
         private async Task<bool> UptickApiUserSmsCount(User apiUser)

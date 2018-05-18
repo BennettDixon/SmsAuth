@@ -255,20 +255,31 @@ namespace CutfloSMSAuth.Models
 
         private User GetUserFromReader(SqlDataReader reader)
         {
-            if (reader.Read())
+            try
             {
-                var user = new User
+                if (reader.Read())
                 {
-                    UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
-                    FirstName = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    LastName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    Email = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    PhoneNumber = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    LoginSession = reader.IsDBNull(5) ? null : reader.GetString(6),
-                };
-                return user;
+                    var user = new User
+                    {
+                        UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
+                        ApiKey = reader.IsDBNull(1) ? null : reader.GetString(1),
+                        CompanyName = reader.IsDBNull(2) ? null : reader.GetString(2),
+                        CompanyMailingUrl = reader.IsDBNull(3) ? null : reader.GetString(3),
+                        FirstName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        LastName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                        Email = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    };
+                    return user;
+                }
+                return null;
             }
-            return null;
+            catch (Exception e)
+            {
+                SqlDebugger.Instance.ServerWrite(e.Message);
+                SqlDebugger.Instance.ServerWrite(e.Source);
+                SqlDebugger.Instance.ServerWrite(e.StackTrace);
+                return null;
+            }
         }
 
         private User GetTempUserFromReader(SqlDataReader reader)
@@ -278,10 +289,10 @@ namespace CutfloSMSAuth.Models
                 var user = new User
                 {
                     UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
-                    RegistrationSession = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Token = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    Email = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    PhoneNumber = reader.IsDBNull(4) ? null : reader.GetString(4)
+                    Email = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    PhoneNumber = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    RegistrationSession = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    Token = reader.IsDBNull(4) ? null : reader.GetString(4)
                 };
                 return user;
             }
@@ -445,36 +456,34 @@ namespace CutfloSMSAuth.Models
         }
         */
 
-        public string SetLoginSessionId(User user, out int rowsEff, string tableName = UserTableName)
+        public async Task<string> SetLoginSessionId(User user, string tableName = UserTableName)
         {
             if (user == null)
             {
-                rowsEff = 0;
                 return "ERROR: User is null.";
             }
 
             if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
             {
-                rowsEff = 0;
                 return null;
             }
 
             using (SqlConnection connection = GetConnection())
             {
-                connection.Open();
+                await connection.OpenAsync();
                 // Set user's session column to string sessionId and return so we can return Json
                 var _sessionId = KeyGeneration.GenerateSession();
                 user.LoginSession = _sessionId;
                 string sql = string.Format("UPDATE {0} SET LOGIN_SESSION = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
                 using (SqlCommand insertSession = new SqlCommand(sql, connection))
                 {
-                    rowsEff = insertSession.ExecuteNonQuery();
+                    await insertSession.ExecuteNonQueryAsync();
                     return _sessionId;
                 }
             }
         }
 
-        public string SetRegistrationSession(User user, string tableName = SmsRegistrationTable)
+        public async Task<string> SetRegistrationSession(User user, string tableName = SmsRegistrationTable)
         {
             if (user == null)
             {
@@ -487,14 +496,14 @@ namespace CutfloSMSAuth.Models
 
             using (SqlConnection connection = GetConnection())
             {
-                connection.Open();
+                await connection.OpenAsync();
                 // Set user's session column to string sessionId and return so we can return Json
                 var _sessionId = KeyGeneration.GenerateSession();
                 user.RegistrationSession = _sessionId;
                 string sql = string.Format("UPDATE {0} SET REGISTRATIONID = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
                 using (SqlCommand insertSession = new SqlCommand(sql, connection))
                 {
-                    insertSession.ExecuteNonQuery();
+                    await insertSession.ExecuteNonQueryAsync();
                     return _sessionId;
                 }
             }
@@ -543,7 +552,7 @@ namespace CutfloSMSAuth.Models
         }
 
         // cutfloReg DB
-        public bool CreateTempUser(User user)
+        public async Task<bool> CreateTempUser(User user)
         {
             string[] sqlStrs = { user.PhoneNumber, user.Email, user.Token };
             if (SqlSecurity.BatchContainsIllegals(sqlStrs))
@@ -555,7 +564,7 @@ namespace CutfloSMSAuth.Models
             {
                 using (SqlConnection connection = GetConnection())
                 {
-                    connection.Open();
+                   await connection.OpenAsync();
 
                     StringBuilder sb = new StringBuilder();
                     sb.Append("INSERT INTO cutfloReg (REGISTRATIONID, TOKEN, EMAIL, PHONENUMBER)");
@@ -564,7 +573,7 @@ namespace CutfloSMSAuth.Models
 
                     using (SqlCommand createUser = new SqlCommand(sql, connection))
                     {
-                        int rowsEff = createUser.ExecuteNonQuery();
+                        int rowsEff = await createUser.ExecuteNonQueryAsync();
 
                         if (rowsEff > 0)
                         {
@@ -621,22 +630,24 @@ namespace CutfloSMSAuth.Models
                 using (SqlConnection connection = GetConnection())
                 {
                     await connection.OpenAsync();
-
                     StringBuilder sb = new StringBuilder();
                     sb.AppendFormat("SELECT * FROM {0} WHERE {1} = '{2}';", tableName, ApiKey, apiToken);
                     string sql = sb.ToString();
 
                     using (SqlCommand command = new SqlCommand(sql, connection))
-                    using (SqlDataReader reader = command.ExecuteReader())
+                    using (SqlDataReader reader = await command.ExecuteReaderAsync())
                     {
                         var apiUser = GetUserFromReader(reader);
                         return apiUser;
                     }
                 }
             }
-            catch (Exception)
+            catch (SqlException e)
             {
-
+                SqlDebugger.Instance.ServerWrite(e.Message);
+                SqlDebugger.Instance.ServerWrite(e.StackTrace);
+                SqlDebugger.Instance.ServerWrite(e.Source);
+                   
                 throw;
             }
         }

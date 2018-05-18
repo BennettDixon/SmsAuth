@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Data.SqlClient;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace CutfloSMSAuth.Models
 {
@@ -49,13 +50,46 @@ namespace CutfloSMSAuth.Models
                     foreach (var logItem in batchLog)
                     {
                         StringBuilder sb = new StringBuilder();
-                        sb.Append("INSERT INTO cutfloDebug (DebugID, ConsoleWrite)");
+                        sb.Append("INSERT INTO smsAuthDebug (DebugID, ConsoleWrite)");
                         sb.AppendFormat("VALUES ('{0}', '{1}')", DebuggerContext, logMsg);
                         String sql = sb.ToString();
 
                         SqlCommand writeCmd = new SqlCommand(sql, connection);
 
                         writeCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (SqlException e)
+            {
+                Console.WriteLine("We're fucked the debuggers not even working." + "  :  " + e);
+            }
+        }
+
+        public async Task ServerWriteAsync(string logMsg)
+        {
+            if (SqlSecurity.ContainsIllegals(logMsg))
+            {
+                logMsg = SqlSecurity.RemoveIllegals(logMsg);
+            }
+
+            string[] batchLog = BreakIntoBatch(logMsg);
+
+            try
+            {
+                using (SqlConnection connection = GetConnection())
+                {
+                    await connection.OpenAsync();
+                    foreach (var logItem in batchLog)
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        sb.Append("INSERT INTO smsAuthDebug (DebugID, ConsoleWrite)");
+                        sb.AppendFormat("VALUES ('{0}', '{1}')", DebuggerContext, logMsg);
+                        String sql = sb.ToString();
+
+                        SqlCommand writeCmd = new SqlCommand(sql, connection);
+
+                        await writeCmd.ExecuteNonQueryAsync();
                     }
                 }
             }
