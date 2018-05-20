@@ -28,28 +28,37 @@ namespace CutfloSMSAuth.Models
 
         public string SendSmsToken()
         {
-            var _sid = ApplicationSettings.TwilioAccountSid;
-            var _token = ApplicationSettings.TwilioAuthToken;
-            var _fromNumber = ApplicationSettings.TwilioPhoneNumber;
+            try
+            {
+                var _sid = ApplicationSettings.TwilioAccountSid;
+                var _token = ApplicationSettings.TwilioAuthToken;
+                var _fromNumber = ApplicationSettings.TwilioPhoneNumber;
 
-            TwilioClient.Init(_sid, _token);
+                TwilioClient.Init(_sid, _token);
 
-            var toNumber = new PhoneNumber(PhoneNumber);
-            var fromNumber = new PhoneNumber(_fromNumber);
+                var toNumber = new PhoneNumber(PhoneNumber);
+                var fromNumber = new PhoneNumber(_fromNumber);
 
-            string token = GenerateToken();
+                string token = GenerateToken();
 
-            string name = (FirstName != null) ? string.Format("Hey {0}! ", FirstName) : "";
+                string name = (FirstName != null) ? string.Format("Hey {0}! ", FirstName) : "";
 
-            var message = MessageResource.Create(
-                toNumber,
-                from: fromNumber,
-                body: string.Format("{0}Your {1} authentication token is {2}.", name, CompanyName, token)
-            );
+                var message = MessageResource.Create(
+                    toNumber,
+                    from: fromNumber,
+                    body: string.Format("{0}Your {1} authentication token is {2}.", name, CompanyName, token)
+                );
 
-            Console.WriteLine(message.Sid);
+                Console.WriteLine(message.Sid);
 
-            return token;
+                return token;
+            }
+            catch (Exception e)
+            {
+                SqlDebugger.Instance.WriteError(e);
+                return "0000";
+            }
+            
         }
 
         public string SendEmailToken(bool isSignUp)

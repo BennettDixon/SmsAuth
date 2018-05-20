@@ -149,7 +149,7 @@ namespace CutfloSMSAuth.Models
             }
             catch (SqlException e)
             {
-                Console.WriteLine(e);
+                SqlDebugger.Instance.WriteError(e);
                 return null;
             }
         }
@@ -268,6 +268,7 @@ namespace CutfloSMSAuth.Models
                         FirstName = reader.IsDBNull(4) ? null : reader.GetString(4),
                         LastName = reader.IsDBNull(5) ? null : reader.GetString(5),
                         Email = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        SmsSent = reader.IsDBNull(7) ? -1 : reader.GetInt32(7),
                     };
                     return user;
                 }
@@ -275,9 +276,7 @@ namespace CutfloSMSAuth.Models
             }
             catch (Exception e)
             {
-                SqlDebugger.Instance.ServerWrite(e.Message);
-                SqlDebugger.Instance.ServerWrite(e.Source);
-                SqlDebugger.Instance.ServerWrite(e.StackTrace);
+                SqlDebugger.Instance.WriteError(e);
                 return null;
             }
         }
@@ -369,10 +368,10 @@ namespace CutfloSMSAuth.Models
                     
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
-                throw;
+                await SqlDebugger.Instance.WriteErrorAsync(ex);
+                return false;
             }
         }
 
@@ -546,13 +545,13 @@ namespace CutfloSMSAuth.Models
             }
             catch (SqlException ex)
             {
-                Console.WriteLine(ex);
+                SqlDebugger.Instance.WriteError(ex);
                 return false;
             }
         }
 
         // cutfloReg DB
-        public async Task<bool> CreateTempUser(User user)
+        public async Task<bool> CreateTempUser(User user, string tableName = SmsRegistrationTable)
         {
             string[] sqlStrs = { user.PhoneNumber, user.Email, user.Token };
             if (SqlSecurity.BatchContainsIllegals(sqlStrs))
@@ -567,7 +566,7 @@ namespace CutfloSMSAuth.Models
                    await connection.OpenAsync();
 
                     StringBuilder sb = new StringBuilder();
-                    sb.Append("INSERT INTO cutfloReg (REGISTRATIONID, TOKEN, EMAIL, PHONENUMBER)");
+                    sb.AppendFormat("INSERT INTO {0} (REGISTRATIONID, TOKEN, EMAIL, PHONENUMBER)", tableName);
                     sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}');", user.RegistrationSession, user.Token, user.Email, user.PhoneNumber);
                     string sql = sb.ToString();
 
@@ -585,12 +584,12 @@ namespace CutfloSMSAuth.Models
             }
             catch (SqlException ex)
             {
-                Console.WriteLine(ex);
+                await SqlDebugger.Instance.WriteErrorAsync(ex);
                 return false;
             }
         }
 
-        public bool DeleteTempUser(User user, string tableName = UserTableName)
+        public bool DeleteTempUser(User user, string tableName = SmsRegistrationTable)
         {
             try
             {
@@ -618,7 +617,7 @@ namespace CutfloSMSAuth.Models
             }
             catch (SqlException ex)
             {
-                SqlDebugger.Instance.ServerWrite(ex.Message);
+                SqlDebugger.Instance.WriteError(ex);
                 return false;
             }
         }
@@ -644,11 +643,8 @@ namespace CutfloSMSAuth.Models
             }
             catch (SqlException e)
             {
-                SqlDebugger.Instance.ServerWrite(e.Message);
-                SqlDebugger.Instance.ServerWrite(e.StackTrace);
-                SqlDebugger.Instance.ServerWrite(e.Source);
-                   
-                throw;
+                await SqlDebugger.Instance.WriteErrorAsync(e);
+                return null;
             }
         }
 

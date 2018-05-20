@@ -117,6 +117,8 @@ namespace CutfloSMSAuth.Controllers
 
             if (apiUser == null) return Json(ErrorMessages.ApiAuthenticationError());
             SqlDebugger.Instance.ServerWrite("APIUSER authenticated");
+            //AUTHING SUCCESSFULLY ERROR IS DOWN THE LINE 
+
             User user = null;
             string email = post.Email;
             string phoneNumber = post.PhoneNumber;
@@ -154,7 +156,9 @@ namespace CutfloSMSAuth.Controllers
             // Send via phone
             if (phoneNumber != null)
             {
+                SqlDebugger.Instance.ServerWrite("attempting to send token");
                 string _token = user.SendSmsToken();
+                SqlDebugger.Instance.ServerWrite("token sent: " + _token);
                 user.Token = _token;
                 await UptickApiUserSmsCount(apiUser);
             }

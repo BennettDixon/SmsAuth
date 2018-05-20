@@ -32,6 +32,7 @@ namespace CutfloSMSAuth
             //Add Database Connections
             services.AddDbContext<UserContext>(opt => opt.UseInMemoryDatabase("Users"));
             services.Add(new ServiceDescriptor(typeof(UserSqlContext), new UserSqlContext(debugger)));
+            services.Add(new ServiceDescriptor(typeof(ApplicationSettings), new ApplicationSettings()));
 
             //Establish API Routes
             services.AddRouting();

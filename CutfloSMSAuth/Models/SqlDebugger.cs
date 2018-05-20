@@ -32,6 +32,20 @@ namespace CutfloSMSAuth.Models
             DebuggerContext = context;
         }
 
+        public void WriteError(Exception ex)
+        {
+            ServerWrite(ex.Message);
+            ServerWrite(ex.Source);
+            ServerWrite(ex.StackTrace);
+        }
+
+        public async Task WriteErrorAsync(Exception ex)
+        {
+            await ServerWriteAsync(ex.Message);
+            await ServerWriteAsync(ex.Source);
+            await ServerWriteAsync(ex.StackTrace);
+        }
+
         // DEBUG METHODS \\
         public void ServerWrite(string logMsg)
         {
