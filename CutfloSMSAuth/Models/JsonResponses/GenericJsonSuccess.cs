@@ -8,6 +8,11 @@ namespace CutfloSMSAuth
 
         public bool Success { get; set; }
 
+        public GenericJsonSuccess()
+        {
+            Success = false;
+        }
+
         public GenericJsonSuccess(bool success)
         {
             Success = success;
