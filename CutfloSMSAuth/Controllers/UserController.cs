@@ -36,6 +36,8 @@ namespace CutfloSMSAuth.Controllers
         [HttpPost]
         public async Task<IActionResult> UserExists([FromBody] User post)
         {
+            SqlDebugger.Instance.ServerWrite("api/user/exists endpoint is being triggered");
+
             User user = null;
             var _phoneNum = post.PhoneNumber;
             //Send by phone number if it is available. PRIORITY: 1.
@@ -84,46 +86,62 @@ namespace CutfloSMSAuth.Controllers
         public async Task<IActionResult> ValidatePhone([FromBody] User post)
         {
             User currentUserInDb;
+            bool isEmail;
 
-            if (string.IsNullOrEmpty(post.PhoneNumber) && string.IsNullOrEmpty(post.Email))
+            // if phone is null && email is not null
+            if (string.IsNullOrEmpty(post.PhoneNumber) && !string.IsNullOrEmpty(post.Email))
             {
                 currentUserInDb = await sqlContext.GetUserByEmailAsync(post.Email);
+                isEmail = true;
             }
             else
             {
                 currentUserInDb = await sqlContext.GetUserByPhoneAsync(post.PhoneNumber);
+                isEmail = false;
             }
 
             if (currentUserInDb == null) return Json(ErrorMessages.ContactMethodError());
 
             string email = post.Email;
             string phoneNumber = post.PhoneNumber;
-            User userObject = null;
             var jsonFalse = Json(new { success = false });
 
             if ((phoneNumber == null && email == null))
             {
                 return jsonFalse;
             }
-            
+
             /////////\\\\\\\\\\
             // SEND THE TOKEN \\\
             //\\\\\\\\\//////////\\
             // Send via phone
-            if (phoneNumber != null)
+            if (isEmail == false)
             {
-                userObject.PhoneNumber = phoneNumber;
-                string _token = userObject.SendSmsToken();
+                string _token = currentUserInDb.SendSmsToken();
+
+                // sending token failed
+                if (string.IsNullOrEmpty(_token))
+                {
+                    SqlDebugger.Instance.ServerWrite(_token);
+                    return Json(ErrorMessages.TokenSendingFailureError());
+                }
+
                 HttpContext.Session.SetString(PhoneKey, phoneNumber);
                 HttpContext.Session.SetString(TokenKey, _token);
                 return Json(GenericJsonSuccess.True);
             }
             // Send via email if no phone
-            else if (phoneNumber == null && email != null)
+            else if (isEmail == true) 
             {
                 bool isRegistration = false;
-                userObject.Email = email;
-                string _token = userObject.SendEmailToken(isRegistration);
+                string _token = currentUserInDb.SendEmailToken(isRegistration);
+
+                // sending token failed
+                if (string.IsNullOrEmpty(_token))
+                {
+                    return Json(ErrorMessages.TokenSendingFailureError());
+                }
+
                 HttpContext.Session.SetString(EmailKey, email);
                 HttpContext.Session.SetString(TokenKey, _token);
                 return Json(GenericJsonSuccess.True);
@@ -160,7 +178,7 @@ namespace CutfloSMSAuth.Controllers
                 string _sessionId = KeyGeneration.GenerateSession();
                 currentUserInDb.LoginSession = _sessionId;
                 await sqlContext.SetLoginSessionIdAsync(currentUserInDb);
-                return Json(new SessionResponse(_sessionId));
+                return Json(currentUserInDb);
             }
             return Json(null);
         }
@@ -207,6 +225,13 @@ namespace CutfloSMSAuth.Controllers
             if (phoneNumber != null)
             {
                 string _token = user.SendSmsToken();
+                
+                //token sending failed
+                if (string.IsNullOrEmpty(_token))
+                {
+                    return Json(ErrorMessages.TokenSendingFailureError());
+                }
+
                 user.Token = _token;
             }
             // Send via email if there is no phone
@@ -214,11 +239,22 @@ namespace CutfloSMSAuth.Controllers
             {
                 bool isRegistration = true;
                 string _token = user.SendEmailToken(isRegistration);
+                
+                // token sending failed
+                if (string.IsNullOrEmpty(_token))
+                {
+                    return Json(ErrorMessages.TokenSendingFailureError());
+                }
+
                 user.Token = _token;
             }
 
             var respBool = await sqlContext.CreateTempUserAsync(user);
-           
+
+            if (respBool == false)
+            {
+                return (Json(ErrorMessages.TempUserCreateFailedError()));
+            }
 
             return Json(GenericJsonSuccess.True);
 
@@ -232,12 +268,13 @@ namespace CutfloSMSAuth.Controllers
             string token = post.Token;
             User user = await sqlContext.GetTempUserFromTokenAsync(token);
 
+            // if token is authenticated set reg session
             if (user != null && token == user.Token)
             {
                 await sqlContext.SetRegistrationSessionAsync(user);
-                return Json(user.RegistrationSession);
+                return Json(new SessionResponse(user.RegistrationSession));
             }
-
+            // registration session will be null since it wasn't set
             return Json(new SessionResponse(user.RegistrationSession));
         }
 
@@ -266,9 +303,8 @@ namespace CutfloSMSAuth.Controllers
                 }
 
                 User _user;
-
                 // refresh info from sql database to pull info like userid 
-                if (postedUser.Email != null)
+                if (postedUser.Email != null && postedUser.PhoneNumber == null)
                 {
                     _user = await sqlContext.GetUserByEmailAsync(postedUser.Email);
                 }
@@ -278,6 +314,11 @@ namespace CutfloSMSAuth.Controllers
                 }
                 // Set login session
                 var loginSession = await sqlContext.SetLoginSessionIdAsync(_user);
+
+                if (string.IsNullOrEmpty(loginSession))
+                {
+                    return Json(ErrorMessages.SessionSetError());
+                }
                 
                 return Json(_user);
             }

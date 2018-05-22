@@ -64,7 +64,7 @@ namespace CutfloSMSAuth.Models
                     foreach (var logItem in batchLog)
                     {
                         StringBuilder sb = new StringBuilder();
-                        sb.AppendFormat("INSERT INTO {0} (DebugID, ConsoleWrite)", tableName);
+                        sb.AppendFormat("INSERT INTO {0} ({1}, {2})", tableName, UserSqlContext.DebugIdKey, UserSqlContext.ConsoleWriteKey);
                         sb.AppendFormat("VALUES ('{0}', '{1}')", DebuggerContext, logMsg);
                         String sql = sb.ToString();
 
@@ -97,7 +97,7 @@ namespace CutfloSMSAuth.Models
                     foreach (var logItem in batchLog)
                     {
                         StringBuilder sb = new StringBuilder();
-                        sb.Append("INSERT INTO smsAuthDebug (DebugID, ConsoleWrite)");
+                        sb.AppendFormat("INSERT INTO {0} ({1}, {2})", tableName, UserSqlContext.DebugIdKey, UserSqlContext.ConsoleWriteKey);
                         sb.AppendFormat("VALUES ('{0}', '{1}')", DebuggerContext, logMsg);
                         String sql = sb.ToString();
 

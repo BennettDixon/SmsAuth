@@ -15,5 +15,17 @@ namespace CutfloSMSAuth.Models
         {
             return new Error(303, "ContactMethodProvidedInvalid");
         }
+        public static Error TokenSendingFailureError()
+        {
+            return new Error(202, "TokenFailedToSend");
+        }
+        public static Error TempUserCreateFailedError()
+        {
+            return new Error(103, "TempUserCreateFailed");
+        }
+        public static Error SessionSetError()
+        {
+            return new Error(101, "SesssionFailedToSet");
+        }
     }
 }

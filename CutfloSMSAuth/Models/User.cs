@@ -13,9 +13,6 @@ namespace CutfloSMSAuth.Models
     public class User
     {
         public long UserId { get; set; } // FOR OUR USE
-        public string CompanyName { get; set; } = "Cutflo"; //REQUIRED
-        public string CompanyMailingUrl { get; set; } = "cutflo.io"; //REQUIRED
-        public string ApiKey { get; set; } // REQUIRED 
         public string FirstName { get; set; } // OPTIONAL
         public string LastName { get; set; } // FOR OUR USE
         public string PhoneNumber { get; set; } // REQUIRED FOR SMS
@@ -23,8 +20,9 @@ namespace CutfloSMSAuth.Models
         public string Token { get; set; } // FOR OUR USE
         public string LoginSession { get; set; } // FOR OUR USE , RETURNED TO YOU FOR LOGIN AUTHENTICATION
         public string RegistrationSession { get; set; } // FOR OUR USE
-        public bool IsPremium { get; set; } // FOR OUR USE
-        public int SmsSent { get; set; } // FOR OUR USE
+
+        private string CompanyName = "Cutflo";
+        private string CompanyMailingUrl = "cutflo.io";
 
         public string SendSmsToken()
         {
@@ -56,52 +54,60 @@ namespace CutfloSMSAuth.Models
             catch (Exception e)
             {
                 SqlDebugger.Instance.WriteError(e);
-                return "0000";
+                return null;
             }
             
         }
 
         public string SendEmailToken(bool isSignUp)
         {
-            string token = GenerateToken();
-            string body = "Error Generating Body";
-            string subject = "Error Generating Subject";
-
-            if (isSignUp)
+            try
             {
-                body = GenerateSignUpEmailBody(token, out subject);
+                string token = GenerateToken();
+                string body = "Error Generating Body";
+                string subject = "Error Generating Subject";
+
+                if (isSignUp)
+                {
+                    body = GenerateSignUpEmailBody(token, out subject);
+                }
+                else
+                {
+                    body = GenerateLoginEmailBody(token, out subject);
+                }
+
+                string _apiKey = ApplicationSettings.MailGunKey;
+                string _apiBaseUrl = ApplicationSettings.MailGunBaseUrl;
+                RestClient client = new RestClient
+                {
+                    BaseUrl = new Uri(_apiBaseUrl),
+                    Authenticator = new HttpBasicAuthenticator("api", _apiKey)
+                };
+                RestRequest request = new RestRequest();
+
+                string fromFormattedLine = string.Format("{0} <mailgun@{1}>", CompanyName, CompanyMailingUrl);
+
+                request.AddParameter("domain", CompanyMailingUrl, ParameterType.UrlSegment);
+                request.Resource = string.Format("{0}/messages", CompanyMailingUrl);
+                request.AddParameter("from", fromFormattedLine);
+
+                // NOTE "Email" parameter is bound to THIS CLASS AND IS A FIELD. SO IT subject (out var of GenerateEmailBody)
+                request.AddParameter("to", Email);
+                request.AddParameter("subject", subject);
+                request.AddParameter("text", body);
+
+                request.Method = Method.POST;
+                var resp = client.Execute(request);
+                var error_log = resp.Content;
+
+                //return token;
+                return error_log;
             }
-            else
+            catch (Exception ex)
             {
-                body = GenerateLoginEmailBody(token, out subject);
+                SqlDebugger.Instance.WriteError(ex);
+                return null;
             }
-
-            string _apiKey = ApplicationSettings.MailGunKey;
-            string _apiBaseUrl = ApplicationSettings.MailGunBaseUrl;
-            RestClient client = new RestClient
-            {
-                BaseUrl = new Uri(_apiBaseUrl),
-                Authenticator = new HttpBasicAuthenticator("api", _apiKey)
-            };
-            RestRequest request = new RestRequest();
-
-            string fromFormattedLine = string.Format("{0} <mailgun@{1}>", CompanyName, CompanyMailingUrl);
-
-            request.AddParameter("domain", CompanyMailingUrl, ParameterType.UrlSegment);
-            request.Resource = string.Format("{0}/messages", CompanyMailingUrl);
-            request.AddParameter("from", fromFormattedLine);
-
-            // NOTE "Email" parameter is bound to THIS CLASS AND IS A FIELD. SO IT subject (out var of GenerateEmailBody)
-            request.AddParameter("to", Email);
-            request.AddParameter("subject", subject);
-            request.AddParameter("text", body);
-
-            request.Method = Method.POST;
-            var resp = client.Execute(request);
-            var error_log = resp.Content;
-
-            //return token;
-            return error_log;
         }
 
         private string GenerateToken()

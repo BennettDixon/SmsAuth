@@ -14,17 +14,23 @@ namespace CutfloSMSAuth.Models
 {
     public class UserSqlContext
     {
-        public const string DebugTable = "smsAuthDebug";
-        public const string UserTableName = "smsAuthUsers";
-        public const string SmsRegistrationTable = "smsRegUsers";
+        // these are your tables
+        public const string DebugTable = "testDebug";
+        public const string UserTableName = "testUsers";
+        public const string SmsRegistrationTable = "testReg3";
 
+        // these are your column names
+        // public because we need to access them from the debugger
+        public const string DebugIdKey = "DEBUGID";
+        public const string ConsoleWriteKey = "CONSOLEWRITE";
+        // rest are private
         private const string FirstNameKey = "FIRSTNAME";
         private const string LastNameKey = "LASTNAME";
         private const string PhoneSqlKey = "PHONENUMBER";
         private const string EmailSqlKey = "EMAIL";
         private const string MailingUrlKey = "MAILINGURL";
         private const string TokenKey = "TOKEN";
-        private const string LoginSessKey = "LOGIN_SESSION";
+        private const string LoginSessKey = "LOGINSESSION";
         private const string UserIdKey = "USERID";
         private const string RegSessKey = "REGISTRATIONID";
         private const string AdFreeKey = "AD_FREE";
@@ -102,15 +108,7 @@ namespace CutfloSMSAuth.Models
                             returnUser = await GetTempUserFromReaderAsync(reader);
                         }
 
-                        if (returnUser == null)
-                        {
-                            return null;
-                        }
-                        if (returnUser.FirstName != null && returnUser.PhoneNumber != null)
-                        {
-                            return returnUser;
-                        }
-                        return null;
+                        return returnUser;
                     }
                 }
             }
@@ -231,13 +229,11 @@ namespace CutfloSMSAuth.Models
                     var user = new User
                     {
                         UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
-                        ApiKey = reader.IsDBNull(1) ? null : reader.GetString(1),
-                        CompanyName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        CompanyMailingUrl = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        FirstName = reader.IsDBNull(4) ? null : reader.GetString(4),
-                        LastName = reader.IsDBNull(5) ? null : reader.GetString(5),
-                        Email = reader.IsDBNull(6) ? null : reader.GetString(6),
-                        SmsSent = reader.IsDBNull(7) ? -1 : reader.GetInt32(7),
+                        LoginSession = reader.IsDBNull(1) ? null : reader.GetString(1),
+                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
+                        Email = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        PhoneNumber = reader.IsDBNull(5) ? null : reader.GetString(5),
                     };
                     return user;
                 }
@@ -261,13 +257,11 @@ namespace CutfloSMSAuth.Models
                     var user = new User
                     {
                         UserId = await reader.IsDBNullAsync(0) ? -1 : reader.GetInt32(0),
-                        ApiKey = await reader.IsDBNullAsync(1) ? null : reader.GetString(1),
-                        CompanyName = await reader.IsDBNullAsync(2) ? null : reader.GetString(2),
-                        CompanyMailingUrl = await reader.IsDBNullAsync(3) ? null : reader.GetString(3),
-                        FirstName = await reader.IsDBNullAsync(4) ? null : reader.GetString(4),
-                        LastName = await reader.IsDBNullAsync(5) ? null : reader.GetString(5),
-                        Email = await reader.IsDBNullAsync(6) ? null : reader.GetString(6),
-                        SmsSent = await reader.IsDBNullAsync(7) ? -1 : reader.GetInt32(7),
+                        LoginSession = await reader.IsDBNullAsync(1) ? null : reader.GetString(1),
+                        FirstName = await reader.IsDBNullAsync(2) ? null : reader.GetString(2),
+                        LastName = await reader.IsDBNullAsync(3) ? null : reader.GetString(3),
+                        Email = await reader.IsDBNullAsync(4) ? null : reader.GetString(4),
+                        PhoneNumber = await reader.IsDBNullAsync(5) ? null : reader.GetString(5),
                     };
                     return user;
                 }
@@ -289,10 +283,10 @@ namespace CutfloSMSAuth.Models
                 var user = new User
                 {
                     UserId = reader.IsDBNull(0) ? -1 : reader.GetInt32(0),
-                    Email = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    PhoneNumber = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    RegistrationSession = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    Token = reader.IsDBNull(4) ? null : reader.GetString(4)
+                    RegistrationSession = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    Token = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    PhoneNumber = reader.IsDBNull(4) ? null : reader.GetString(4),
                 };
                 return user;
             }
@@ -308,10 +302,10 @@ namespace CutfloSMSAuth.Models
                 var user = new User
                 {
                     UserId = await reader.IsDBNullAsync(0) ? -1 : reader.GetInt32(0),
-                    Email = await reader.IsDBNullAsync(1) ? null : reader.GetString(1),
-                    PhoneNumber = await reader.IsDBNullAsync(2) ? null : reader.GetString(2),
-                    RegistrationSession = await reader.IsDBNullAsync(3) ? null : reader.GetString(3),
-                    Token = await reader.IsDBNullAsync(4) ? null : reader.GetString(4)
+                    RegistrationSession = await reader.IsDBNullAsync(1) ? null : reader.GetString(1),
+                    Token = await reader.IsDBNullAsync(2) ? null : reader.GetString(2),
+                    Email = await reader.IsDBNullAsync(3) ? null : reader.GetString(3),
+                    PhoneNumber = await reader.IsDBNullAsync(4) ? null : reader.GetString(4),
                 };
                 return user;
             }
@@ -374,7 +368,7 @@ namespace CutfloSMSAuth.Models
         {
             if (user == null)
             {
-                return "ERROR: User is null.";
+                return null;
             }
 
             if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
@@ -400,28 +394,37 @@ namespace CutfloSMSAuth.Models
         // used after registration is validated and before creation, no security in this other than simple sql illegals, validation should be implemented in controller
         public async Task<string> SetRegistrationSessionAsync(User user, string tableName = SmsRegistrationTable)
         {
-            if (user == null)
+            try
             {
-                return "ERROR: User is null.";
-            }
-            if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
-            {
-                return "ERROR: contains illegals.";
-            }
-
-            using (SqlConnection connection = GetConnection())
-            {
-                await connection.OpenAsync();
-                // Set user's session column to string sessionId and return so we can return Json
-                var _sessionId = KeyGeneration.GenerateSession();
-                user.RegistrationSession = _sessionId;
-                string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = {4}", tableName, RegSessKey, _sessionId, UserIdKey, user.UserId);
-                using (SqlCommand insertSession = new SqlCommand(sql, connection))
+                if (user == null)
                 {
-                    await insertSession.ExecuteNonQueryAsync();
-                    return _sessionId;
+                    return "ERROR: User is null.";
+                }
+                if (SqlSecurity.ContainsIllegals(user.UserId.ToString()))
+                {
+                    return "ERROR: contains illegals.";
+                }
+
+                using (SqlConnection connection = GetConnection())
+                {
+                    await connection.OpenAsync();
+                    // Set user's session column to string sessionId and return so we can return Json
+                    var _sessionId = KeyGeneration.GenerateSession();
+                    user.RegistrationSession = _sessionId;
+                    string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = {4}", tableName, RegSessKey, _sessionId, UserIdKey, user.UserId);
+                    using (SqlCommand insertSession = new SqlCommand(sql, connection))
+                    {
+                        await insertSession.ExecuteNonQueryAsync();
+                        return _sessionId;
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                await SqlDebugger.Instance.WriteErrorAsync(ex);
+                throw;
+            }
+            
         }
 
         // create a temporary registration user with their contact method and token, not very secure, implement validation in controller.
