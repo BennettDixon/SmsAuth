@@ -15,10 +15,11 @@ namespace CutfloSMSAuth.Models
     public class UserSqlContext
     {
         public const string DebugTable = "smsAuthDebug";
-        public const string PremiumTable = "smsAuthPremiumUsers";
         public const string UserTableName = "smsAuthUsers";
         public const string SmsRegistrationTable = "smsRegUsers";
 
+        private const string FirstNameKey = "FIRSTNAME";
+        private const string LastNameKey = "LASTNAME";
         private const string PhoneSqlKey = "PHONENUMBER";
         private const string EmailSqlKey = "EMAIL";
         private const string MailingUrlKey = "MAILINGURL";
@@ -34,17 +35,23 @@ namespace CutfloSMSAuth.Models
 
         private readonly ISqlDebugger Debugger;
 
+        // constructor, initialize sql connection string and debugger, debugger is depreciated as an interface, see below.
+        // use SqlDebugger.Instance.ServerWriteAsync(string msg);
         public UserSqlContext(ISqlDebugger _debugger)
         {
             Debugger = _debugger;
             ConnectionString = ApplicationSettings.GetConnectionString();
         }
 
+        // Return a new SQL connection
         private SqlConnection GetConnection()
         {
             return new SqlConnection(ConnectionString);
         }
 
+        // depreceated since we use SqlDebugger.Instance.ServerWriteAsync(msg) now,
+        // but if you want to use it you can, its implemented with an interface properly and makes compile time smaller
+        // its just not quite as easy to access as a static instance across the entire application
         public bool WriteSqlDebug(string msg)
         {
             try
@@ -60,6 +67,7 @@ namespace CutfloSMSAuth.Models
         }
 
         // Get User Methods \\
+        // grab user by phone, careful not very secure
         public async Task<User> GetUserByPhoneAsync(string _phoneNumber, string tableName = UserTableName, string phoneSqlColumnName = PhoneSqlKey)
         {
             if (SqlSecurity.ContainsIllegals(_phoneNumber)) return null;
@@ -113,6 +121,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // grab the user by email, careful not very secure
         public async Task<User> GetUserByEmailAsync(string _email, string tableName = UserTableName, string emailSqlColumnName = EmailSqlKey)
         {
             if (SqlSecurity.ContainsIllegals(_email))
@@ -155,6 +164,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // gets a user from the user table or registration table (user is default) based on reg/login session
         public async Task<User> GetUserFromSessionAsync(string session, string tableName = UserTableName)
         {
             if (SqlSecurity.ContainsIllegals(session)) return null;
@@ -192,6 +202,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // Grabs user from registration table in the registration/auth endpoint from a token that is posted
         public async Task<User> GetTempUserFromTokenAsync(string token, string tableName = SmsRegistrationTable)
         {
             if (SqlSecurity.ContainsIllegals(token)) return null;
@@ -210,6 +221,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // CHANGE/ADD/SUBTRACT TO/FROM BASED ON YOUR USER DATA STRUCTURE NEEDS
         private User GetUserFromReader(SqlDataReader reader)
         {
             try
@@ -238,6 +250,8 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+
+        // CHANGE/ADD/SUBTRACT TO/FROM BASED ON YOUR USER DATA STRUCTURE NEEDS
         private async Task<User> GetUserFromReaderAsync(SqlDataReader reader)
         {
             try
@@ -266,6 +280,8 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+
+        // DO NOT CHANGE UNLESS YOU SETUP YOUR REGISTRATION TABLE WITH A DIFFERENT SQL STATEMENT THEN WE DID IN THE TUTORIAL
         private User GetTempUserFromReader(SqlDataReader reader)
         {
             if (reader.Read())
@@ -284,6 +300,7 @@ namespace CutfloSMSAuth.Models
             return null;
         }
 
+        // DO NOT CHANGE UNLESS YOU SETUP YOUR REGISTRATION TABLE WITH A DIFFERENT SQL STATEMENT THEN WE DID IN THE TUTORIAL
         private async Task<User> GetTempUserFromReaderAsync(SqlDataReader reader)
         {
             if (await reader.ReadAsync())
@@ -302,11 +319,12 @@ namespace CutfloSMSAuth.Models
             return null;
         }
 
+        // grab a user from their id, useful and fast when we already know the user we are dealing with has been secured and validated
         private int GetUserId(SqlConnection connection, string session, string tableName = UserTableName)
         {
             if (SqlSecurity.ContainsIllegals(session)) return -1;
 
-            string sql = string.Format("SELECT USERID FROM {0} WHERE {1} = '{2}'", tableName, ApiKey, session);
+            string sql = string.Format("SELECT {0} FROM {1} WHERE {2} = '{3}'", UserIdKey, tableName, LoginSessKey, session);
             using (SqlCommand checkExists = new SqlCommand(sql, connection))
             {
                 int? userId = (int)checkExists.ExecuteScalar();
@@ -318,6 +336,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // used to create a user, no security in this function itself, just the controller, be careful.
         public async Task<bool> CreateUserAsync(string fName, string lName, string email, string phone, string tableName = UserTableName)
         {
             try
@@ -328,7 +347,7 @@ namespace CutfloSMSAuth.Models
 
                     StringBuilder sb = new StringBuilder();
                     // alter this sql statement to create whatever attributes you need for your user, inject through the function arguments
-                    sb.AppendFormat("INSERT INTO {0} (FNAME, LNAME, EMAIL, PHONE)", tableName);
+                    sb.AppendFormat("INSERT INTO {0} ({1}, {2}, {3}, {4})", tableName, FirstNameKey, LastNameKey, EmailSqlKey, PhoneSqlKey);
                     sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}')", fName, lName, email, phone);
                     String sql = sb.ToString();
 
@@ -350,6 +369,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // used after login is validated, no security in this other than simple sql illegals, validation should be implemented in controller
         public async Task<string> SetLoginSessionIdAsync(User user, string tableName = UserTableName)
         {
             if (user == null)
@@ -368,7 +388,7 @@ namespace CutfloSMSAuth.Models
                 // Set user's session column to string sessionId and return so we can return Json
                 var _sessionId = KeyGeneration.GenerateSession();
                 user.LoginSession = _sessionId;
-                string sql = string.Format("UPDATE {0} SET LOGIN_SESSION = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
+                string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = {4}", tableName, LoginSessKey, _sessionId, UserIdKey, user.UserId);
                 using (SqlCommand insertSession = new SqlCommand(sql, connection))
                 {
                     await insertSession.ExecuteNonQueryAsync();
@@ -377,6 +397,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // used after registration is validated and before creation, no security in this other than simple sql illegals, validation should be implemented in controller
         public async Task<string> SetRegistrationSessionAsync(User user, string tableName = SmsRegistrationTable)
         {
             if (user == null)
@@ -394,7 +415,7 @@ namespace CutfloSMSAuth.Models
                 // Set user's session column to string sessionId and return so we can return Json
                 var _sessionId = KeyGeneration.GenerateSession();
                 user.RegistrationSession = _sessionId;
-                string sql = string.Format("UPDATE {0} SET REGISTRATIONID = '{1}' WHERE USERID = {2}", tableName, _sessionId, user.UserId);
+                string sql = string.Format("UPDATE {0} SET {1} = '{2}' WHERE {3} = {4}", tableName, RegSessKey, _sessionId, UserIdKey, user.UserId);
                 using (SqlCommand insertSession = new SqlCommand(sql, connection))
                 {
                     await insertSession.ExecuteNonQueryAsync();
@@ -403,7 +424,7 @@ namespace CutfloSMSAuth.Models
             }
         }
 
-        // cutfloReg DB
+        // create a temporary registration user with their contact method and token, not very secure, implement validation in controller.
         public async Task<bool> CreateTempUserAsync(User user, string tableName = SmsRegistrationTable)
         {
             string[] sqlStrs = { user.PhoneNumber, user.Email, user.Token };
@@ -419,7 +440,7 @@ namespace CutfloSMSAuth.Models
                    await connection.OpenAsync();
 
                     StringBuilder sb = new StringBuilder();
-                    sb.AppendFormat("INSERT INTO {0} (REGISTRATIONID, TOKEN, EMAIL, PHONENUMBER)", tableName);
+                    sb.AppendFormat("INSERT INTO {0} ({1}, {2}, {3}, {4})", tableName, RegSessKey, TokenKey, EmailSqlKey, PhoneSqlKey);
                     sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}');", user.RegistrationSession, user.Token, user.Email, user.PhoneNumber);
                     string sql = sb.ToString();
 
@@ -442,6 +463,8 @@ namespace CutfloSMSAuth.Models
             }
         }
 
+        // used after user is created from reg table and moved to user table, cleans out old reg users that don't need to be in the reg table anymore
+        // as always validate in the controller before use
         public async Task<bool> DeleteTempUserAsync(User user, string tableName = SmsRegistrationTable)
         {
             try
@@ -452,7 +475,7 @@ namespace CutfloSMSAuth.Models
 
                     StringBuilder sb = new StringBuilder();
                     sb.AppendFormat("DELETE FROM {0}", tableName);
-                    sb.AppendFormat(" WHERE USERID = '{0}'", user.UserId);
+                    sb.AppendFormat(" WHERE {0} = '{1}'", UserIdKey, user.UserId);
                     string sql = sb.ToString();
 
                     using (SqlCommand deleteUser = new SqlCommand(sql, connection))
