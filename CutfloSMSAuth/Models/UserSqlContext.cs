@@ -329,7 +329,7 @@ namespace CutfloSMSAuth.Models
                     StringBuilder sb = new StringBuilder();
                     // alter this sql statement to create whatever attributes you need for your user, inject through the function arguments
                     sb.AppendFormat("INSERT INTO {0} (FNAME, LNAME, EMAIL, PHONE)", tableName);
-                    sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", fName, lName, email, phone);
+                    sb.AppendFormat("VALUES ('{0}', '{1}', '{2}', '{3}')", fName, lName, email, phone);
                     String sql = sb.ToString();
 
                     SqlCommand createUser = new SqlCommand(sql, connection);

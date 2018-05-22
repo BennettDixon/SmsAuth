@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading.Tasks;
+
 namespace CutfloSMSAuth
 {
     public class SqlSecurity

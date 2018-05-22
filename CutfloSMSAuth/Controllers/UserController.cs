@@ -235,11 +235,54 @@ namespace CutfloSMSAuth.Controllers
             if (user != null && token == user.Token)
             {
                 await sqlContext.SetRegistrationSessionAsync(user);
-                await sqlContext.DeleteTempUserAsync(user);
                 return Json(user.RegistrationSession);
             }
 
             return Json(new SessionResponse(user.RegistrationSession));
+        }
+
+        // Required attributes for User posted object: User.RegistrationSession
+        [Route("api/user/register/create")]
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] User postedUser)
+        {
+            var user = await sqlContext.GetUserFromSessionAsync(postedUser.RegistrationSession, UserSqlContext.SmsRegistrationTable);
+
+            if (user == null)
+            {
+                return Json(null);
+            }
+
+            bool userCreated = await sqlContext.CreateUserAsync(postedUser.FirstName, postedUser.LastName, postedUser.Email, postedUser.PhoneNumber);
+
+            if (userCreated)
+            {
+                // Delete user from reg DB
+                var _resp = await sqlContext.DeleteTempUserAsync(user);
+
+                if (_resp == false)
+                {
+                    return Json(GenericJsonSuccess.False);
+                }
+
+                User _user;
+
+                // refresh info from sql database to pull info like userid 
+                if (postedUser.Email != null)
+                {
+                    _user = await sqlContext.GetUserByEmailAsync(postedUser.Email);
+                }
+                else
+                {
+                    _user = await sqlContext.GetUserByPhoneAsync(postedUser.PhoneNumber);
+                }
+                // Set login session
+                var loginSession = await sqlContext.SetLoginSessionIdAsync(_user);
+                
+                return Json(_user);
+            }
+            return Json(null);
+
         }
     }
 }
